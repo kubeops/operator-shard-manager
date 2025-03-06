@@ -186,7 +186,7 @@ func (c *Consistent) distributeWithLoad(partID, idx int, partitions map[int]*Mem
 	var count int
 	for {
 		count++
-		if count >= len(c.sortedSet) {
+		if count > len(c.sortedSet) {
 			// User needs to decrease partition count, increase member count or increase load factor.
 			panic("not enough room to distribute partitions")
 		}

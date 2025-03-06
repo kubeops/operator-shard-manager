@@ -6,11 +6,11 @@ spec:
   controllers:
   - apiGroup: apps
     kind: Deployment
-    name: kubedb-kubedb-provisioner
+    name: kubedb-provisioner
     namespace: kubedb
-  - apiGroup: apps
-    kind: Deployment
-    name: kubedb-kubedb-ops-manager
-    namespace: kubedb
+#  - apiGroup: apps
+#    kind: Deployment
+#    name: kubedb-kubedb-ops-manager
+#    namespace: kubedb
   resources:
   - apiGroup: kubedb.com

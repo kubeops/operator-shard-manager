@@ -27,8 +27,8 @@ import (
 
 	operatorv1alpha1 "kubeops.dev/operator-shard-manager/api/v1alpha1"
 
-	"github.com/buraksezer/consistent"
 	"github.com/cespare/xxhash/v2"
+	"gomodules.xyz/consistent"
 	apps "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
+	"k8s.io/klog/v2"
 	kmapi "kmodules.xyz/client-go/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -92,7 +93,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := r.Get(ctx, req.NamespacedName, &cfg); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
+	klog.Infof("Reconciling ShardConfiguration %s/%s", cfg.Namespace, cfg.Name)
 	ctrlMap := make(map[kmapi.TypedObjectReference][]string)
 	for _, ref := range cfg.Status.Controllers {
 		ctrlMap[ref.TypedObjectReference] = ref.Pods
@@ -120,29 +121,29 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 				Pods:                 pods,
 			})
 		} else {
-			if len(pods) > len(existing) {
-				existing = append(existing, make([]string, len(pods)-len(existing))...)
-			} else if len(pods) < len(existing) {
-				existing = existing[:len(pods)]
-			}
+			newPods := make([]string, 0)
 
 			idxMap := make(map[string]int)
 			for idx, pod := range pods {
 				idxMap[pod] = idx
 			}
 
-			nextAvailable := 0
-			for idx, pod := range existing {
-				if pi, ok := idxMap[pod]; ok {
-					pods[pi] = ""
-				} else {
-					existing[idx], nextAvailable = nextPod(pods, nextAvailable)
+			for _, pod := range existing {
+				idx, exists := idxMap[pod]
+				if exists {
+					newPods = append(newPods, pod)
+					pods[idx] = ""
+				}
+			}
+			for _, pod := range pods {
+				if pod != "" {
+					newPods = append(newPods, pod)
 				}
 			}
 
 			allocs = append(allocs, operatorv1alpha1.ControllerAllocation{
 				TypedObjectReference: ref,
-				Pods:                 existing,
+				Pods:                 newPods,
 			})
 		}
 	}
@@ -157,16 +158,14 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 		log.Info(string(opresult))
 	}
 
-	shardKey := fmt.Sprintf("shard.%s/%s", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
-
 	members := make([]consistent.Member, 0, shardCount)
 	for i := 0; i < shardCount; i++ {
 		members = append(members, Member{ID: i})
 	}
 	cc := consistent.New(members, consistent.Config{
-		PartitionCount:    shardCount,
+		PartitionCount:    getNextPrimeNumber(shardCount * 2),
 		ReplicationFactor: 1,
-		Load:              1.25,
+		Load:              1.5,
 		Hasher:            hasher{},
 	})
 	for _, resource := range cfg.Spec.Resources {
@@ -184,7 +183,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 				return ctrl.Result{}, err
 			}
 
-			if err := r.UpdateShardLabel(ctx, cc, shardKey, gvk); err != nil {
+			if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg); err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
@@ -203,8 +202,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 							if err := r.RegisterResourceWatcher(gvk); err != nil {
 								return ctrl.Result{}, err
 							}
-
-							if err := r.UpdateShardLabel(ctx, cc, shardKey, gvk); err != nil {
+							if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg); err != nil {
 								return ctrl.Result{}, err
 							}
 						}
@@ -217,9 +215,9 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	return ctrl.Result{}, nil
 }
 
-func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, shardKey string, gvk schema.GroupVersionKind) error {
+func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *operatorv1alpha1.ShardConfiguration) error {
 	log := log.FromContext(ctx)
-
+	shardKey := fmt.Sprintf("shard.%s/%s-ID", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
 	var list metav1.PartialObjectMetadataList
 	list.SetGroupVersionKind(gvk)
 	err := r.List(ctx, &list)
@@ -228,13 +226,32 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 	}
 	for _, obj := range list.Items {
 		m := cc.LocateKey([]byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName())))
-
+		id, err := strconv.Atoi(m.String())
+		if err != nil {
+			return err
+		}
+		updated := false
+		labels := obj.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
 		if obj.Labels[shardKey] != m.String() {
+			updated = true
+			labels[shardKey] = m.String()
+		}
+		for _, t := range cfg.Status.Controllers {
+			shardOwner := fmt.Sprintf("shard.%s/%s-%v", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name, t.Name)
+			if obj.Labels[shardOwner] != t.Pods[id] {
+				updated = true
+				labels[shardOwner] = t.Pods[id]
+			}
+		}
+		if updated {
 			opr, err := controllerutil.CreateOrPatch(ctx, r.Client, &obj, func() error {
 				if obj.Labels == nil {
 					obj.Labels = map[string]string{}
 				}
-				obj.Labels[shardKey] = m.String()
+				obj.Labels = labels
 				return nil
 			})
 			if err != nil {
@@ -245,17 +262,6 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 		}
 	}
 	return nil
-}
-
-func nextPod(pods []string, start int) (string, int) {
-	for i := start; i < len(pods); i++ {
-		if pods[i] != "" {
-			result := pods[i]
-			pods[i] = ""
-			return result, i + 1
-		}
-	}
-	return "", -1
 }
 
 func contains(s []string, str string) bool {
@@ -270,14 +276,13 @@ func contains(s []string, str string) bool {
 func (r *ShardConfigurationReconciler) RegisterResourceWatcher(gvk schema.GroupVersionKind) error {
 	r.resMu.Lock()
 	defer r.resMu.Unlock()
-
 	if _, ok := r.resGKs[gvk.GroupKind()]; ok {
 		return nil
 	}
 
 	var obj metav1.PartialObjectMetadata
 	obj.SetGroupVersionKind(gvk)
-	return r.ctrl.Watch(source.Kind[*metav1.PartialObjectMetadata](r.cache, &obj, handler.TypedEnqueueRequestsFromMapFunc[*metav1.PartialObjectMetadata](func(ctx context.Context, md *metav1.PartialObjectMetadata) []reconcile.Request {
+	err := r.ctrl.Watch(source.Kind[*metav1.PartialObjectMetadata](r.cache, &obj, handler.TypedEnqueueRequestsFromMapFunc[*metav1.PartialObjectMetadata](func(ctx context.Context, md *metav1.PartialObjectMetadata) []reconcile.Request {
 		var list operatorv1alpha1.ShardConfigurationList
 		err := r.List(context.TODO(), &list)
 		if err != nil {
@@ -298,6 +303,11 @@ func (r *ShardConfigurationReconciler) RegisterResourceWatcher(gvk schema.GroupV
 		}
 		return result
 	})))
+	if err != nil {
+		return err
+	}
+	r.resGKs[gvk.GroupKind()] = struct{}{}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -340,6 +350,7 @@ func (r *ShardConfigurationReconciler) SetupWithManager(mgr ctrl.Manager) error 
 }
 
 func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectReference) ([]string, error) {
+	// TODO: Ignore terminating pods
 	if ref.APIGroup != "apps" {
 		return nil, errors.New("controller must be one of Deployment/StatefulSet/Daemonset")
 	}
@@ -376,7 +387,7 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 			if err != nil {
 				return nil, err
 			}
-			if metav1.IsControlledBy(&pod, &rs) {
+			if metav1.IsControlledBy(&pod, &rs) && pod.DeletionTimestamp == nil {
 				pods = append(pods, pod.Name)
 			}
 		}
@@ -404,7 +415,7 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 		}
 		pods := make([]string, 0, len(list.Items))
 		for _, pod := range list.Items {
-			if metav1.IsControlledBy(&pod, &obj) {
+			if metav1.IsControlledBy(&pod, &obj) && pod.DeletionTimestamp == nil {
 				pods = append(pods, pod.Name)
 			}
 		}
@@ -444,7 +455,7 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 		}
 		pods := make([]string, 0, len(list.Items))
 		for _, pod := range list.Items {
-			if metav1.IsControlledBy(&pod, &obj) {
+			if metav1.IsControlledBy(&pod, &obj) && pod.DeletionTimestamp == nil {
 				pods = append(pods, pod.Name)
 			}
 		}
@@ -471,3 +482,21 @@ func (M Member) String() string {
 }
 
 var _ consistent.Member = Member{}
+
+func getNextPrimeNumber(shardCount int) int {
+	if shardCount < 2 {
+		return 2
+	}
+	for i := shardCount; ; i++ {
+		divisible := false
+		for j := 2; j*j <= i; j++ {
+			if i%j == 0 {
+				divisible = true
+				break
+			}
+		}
+		if !divisible {
+			return i
+		}
+	}
+}
