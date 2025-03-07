@@ -163,9 +163,9 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 		members = append(members, Member{ID: i})
 	}
 	cc := consistent.New(members, consistent.Config{
-		PartitionCount:    getNextPrimeNumber(shardCount * 2),
+		PartitionCount:    getBetterPartitionCount(shardCount, 1.0),
 		ReplicationFactor: 1,
-		Load:              1.5,
+		Load:              1.0,
 		Hasher:            hasher{},
 	})
 	for _, resource := range cfg.Spec.Resources {
@@ -482,21 +482,3 @@ func (M Member) String() string {
 }
 
 var _ consistent.Member = Member{}
-
-func getNextPrimeNumber(shardCount int) int {
-	if shardCount < 2 {
-		return 2
-	}
-	for i := shardCount; ; i++ {
-		divisible := false
-		for j := 2; j*j <= i; j++ {
-			if i%j == 0 {
-				divisible = true
-				break
-			}
-		}
-		if !divisible {
-			return i
-		}
-	}
-}

@@ -312,7 +312,7 @@ golang.org/x/time/rate
 # gomodules.xyz/clock v0.0.0-20200817085942-06523dba733f
 ## explicit; go 1.14
 gomodules.xyz/clock
-# gomodules.xyz/consistent v0.10.1-0.20250304091849-7eebcff00b32
+# gomodules.xyz/consistent v0.10.1-0.20250307082859-d6cf4999063f
 ## explicit; go 1.9
 gomodules.xyz/consistent
 # gomodules.xyz/flags v0.1.3

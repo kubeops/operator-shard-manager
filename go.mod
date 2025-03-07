@@ -8,7 +8,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/spf13/cobra v1.8.0
 	go.bytebuilders.dev/license-verifier v0.14.3
-	gomodules.xyz/consistent v0.10.1-0.20250304091849-7eebcff00b32
+	gomodules.xyz/consistent v0.10.1-0.20250307082859-d6cf4999063f
 	gomodules.xyz/logs v0.0.7
 	gomodules.xyz/x v0.0.17
 	k8s.io/api v0.30.2
