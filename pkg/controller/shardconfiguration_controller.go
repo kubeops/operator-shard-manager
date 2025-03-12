@@ -200,7 +200,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *operatorv1alpha1.ShardConfiguration) error {
 	log := log.FromContext(ctx)
-	shardKey := fmt.Sprintf("shard.%s/%s-ID", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
+	shardKey := fmt.Sprintf("shard-index.%s/%s", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
 	var list metav1.PartialObjectMetadataList
 	list.SetGroupVersionKind(gvk)
 	err := r.List(ctx, &list)
@@ -209,32 +209,13 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 	}
 	for _, obj := range list.Items {
 		m := cc.LocateKey([]byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName())))
-		id, err := strconv.Atoi(m.String())
-		if err != nil {
-			return err
-		}
-		updated := false
-		labels := obj.GetLabels()
-		if labels == nil {
-			labels = make(map[string]string)
-		}
+
 		if obj.Labels[shardKey] != m.String() {
-			updated = true
-			labels[shardKey] = m.String()
-		}
-		for _, t := range cfg.Status.Controllers {
-			shardOwner := fmt.Sprintf("shard.%s/%s-%v", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name, t.Name)
-			if obj.Labels[shardOwner] != t.Pods[id] {
-				updated = true
-				labels[shardOwner] = t.Pods[id]
-			}
-		}
-		if updated {
 			opr, err := controllerutil.CreateOrPatch(ctx, r.Client, &obj, func() error {
 				if obj.Labels == nil {
 					obj.Labels = map[string]string{}
 				}
-				obj.Labels = labels
+				obj.Labels[shardKey] = m.String()
 				return nil
 			})
 			if err != nil {
