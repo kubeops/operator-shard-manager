@@ -371,6 +371,8 @@ install:
 	kubectl create ns $(KUBE_NAMESPACE) || true; \
 	kubectl label ns $(KUBE_NAMESPACE) pod-security.kubernetes.io/enforce=restricted; \
 	helm upgrade -i operator-shard-manager charts/operator-shard-manager --wait \
+		--set registryFQDN="" \
+		--set image.registry=$(REGISTRY) \
 		--namespace=$(KUBE_NAMESPACE) --create-namespace \
 		--set image.tag=$(TAG_PROD) \
 		--set imagePullPolicy=$(IMAGE_PULL_POLICY) \
