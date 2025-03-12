@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	operatorv1alpha1 "kubeops.dev/operator-shard-manager/api/v1alpha1"
 
@@ -102,7 +103,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	shardCount := -1
 	for _, ref := range cfg.Spec.Controllers {
-		pods, err := ListPods(ctx, r.Client, ref)
+		podLists, err := ListPods(ctx, r.Client, ref)
 		if apierrors.IsNotFound(err) {
 			continue
 		} else if err != nil {
@@ -110,40 +111,20 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 
 		if shardCount == -1 {
-			shardCount = len(pods)
-		} else if shardCount != len(pods) {
-			return ctrl.Result{}, fmt.Errorf("expected %d shards, got %d for controller %s/%s %s/%s", shardCount, len(pods), ref.APIGroup, ref.Kind, ref.Namespace, ref.Name)
+			shardCount = len(podLists)
+		} else if shardCount != len(podLists) {
+			return ctrl.Result{}, fmt.Errorf("expected %d shards, got %d for controller %s/%s %s/%s", shardCount, len(podLists), ref.APIGroup, ref.Kind, ref.Namespace, ref.Name)
 		}
 
 		if existing, ok := ctrlMap[ref]; !ok {
 			allocs = append(allocs, operatorv1alpha1.ControllerAllocation{
 				TypedObjectReference: ref,
-				Pods:                 pods,
+				Pods:                 podLists,
 			})
 		} else {
-			newPods := make([]string, 0)
-
-			idxMap := make(map[string]int)
-			for idx, pod := range pods {
-				idxMap[pod] = idx
-			}
-
-			for _, pod := range existing {
-				idx, exists := idxMap[pod]
-				if exists {
-					newPods = append(newPods, pod)
-					pods[idx] = ""
-				}
-			}
-			for _, pod := range pods {
-				if pod != "" {
-					newPods = append(newPods, pod)
-				}
-			}
-
 			allocs = append(allocs, operatorv1alpha1.ControllerAllocation{
 				TypedObjectReference: ref,
-				Pods:                 newPods,
+				Pods:                 getUpdatedPodLists(existing, podLists),
 			})
 		}
 	}
@@ -157,7 +138,9 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if opresult != controllerutil.OperationResultNone {
 		log.Info(string(opresult))
 	}
-
+	if shardCount == -1 {
+		return ctrl.Result{RequeueAfter: time.Second * 2}, nil
+	}
 	members := make([]consistent.Member, 0, shardCount)
 	for i := 0; i < shardCount; i++ {
 		members = append(members, Member{ID: i})
@@ -482,3 +465,12 @@ func (M Member) String() string {
 }
 
 var _ consistent.Member = Member{}
+
+func getNextAvailableIndex(next int, pods []string) int {
+	for i := next; i < len(pods); i++ {
+		if pods[i] == "" {
+			return i
+		}
+	}
+	return 0
+}

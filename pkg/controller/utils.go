@@ -50,3 +50,60 @@ func getBetterPartitionCount(members int, load float64) int {
 	}
 	return candidate
 }
+
+func getUpdatedPodLists(existing, podLists []string) []string {
+	if len(existing) > len(podLists) {
+		return handleDownScaling(existing, podLists)
+	}
+	return handleUpdateOrUpScaling(existing, podLists)
+}
+
+func handleDownScaling(existing, podLists []string) []string {
+	newPods := make([]string, 0)
+
+	idxMap := make(map[string]int)
+	for idx, pod := range podLists {
+		idxMap[pod] = idx
+	}
+
+	for _, pod := range existing {
+		idx, exists := idxMap[pod]
+		if exists {
+			newPods = append(newPods, pod)
+			podLists[idx] = ""
+		}
+	}
+	for _, pod := range podLists {
+		if pod != "" {
+			newPods = append(newPods, pod)
+		}
+	}
+	return newPods
+}
+
+func handleUpdateOrUpScaling(existing, podLists []string) []string {
+	newPods := make([]string, len(podLists))
+
+	idxMap := make(map[string]int)
+	for idx, pod := range podLists {
+		idxMap[pod] = idx
+	}
+
+	for i, pod := range existing {
+		idx, exists := idxMap[pod]
+		if exists {
+			newPods[i] = pod
+			podLists[idx] = ""
+		}
+	}
+	nextAvailable := 0
+	for _, pod := range podLists {
+		if pod == "" {
+			continue
+		}
+		nextAvailable = getNextAvailableIndex(nextAvailable, newPods)
+		newPods[nextAvailable] = pod
+		nextAvailable++
+	}
+	return newPods
+}

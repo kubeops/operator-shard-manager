@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func ShouldEnqueueObjectForShard(labels map[string]string, shardConfig string, kbClient client.Client) bool {
+func ShouldEnqueueObjectForShard(kbClient client.Client, shardConfig string, labels map[string]string) bool {
 	if shardConfig == "" {
 		return true
 	}
