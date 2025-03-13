@@ -112,7 +112,8 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 		if shardCount == -1 {
 			shardCount = len(podLists)
 		} else if shardCount != len(podLists) {
-			return ctrl.Result{}, fmt.Errorf("expected %d shards, got %d for controller %s/%s %s/%s", shardCount, len(podLists), ref.APIGroup, ref.Kind, ref.Namespace, ref.Name)
+			klog.Infof("expected %d shards, got %d for controller %s/%s %s/%s", shardCount, len(podLists), ref.APIGroup, ref.Kind, ref.Namespace, ref.Name)
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 
 		if existing, ok := ctrlMap[ref]; !ok {
@@ -137,7 +138,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if opresult != controllerutil.OperationResultNone {
 		log.Info(string(opresult))
 	}
-	if shardCount == -1 || shardCount == 0 {
+	if shardCount <= 0 {
 		return ctrl.Result{RequeueAfter: time.Second * 2}, nil
 	}
 	members := make([]consistent.Member, 0, shardCount)
@@ -171,10 +172,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 			for _, resourceList := range resourceLists {
 				if gv, err := schema.ParseGroupVersion(resourceList.GroupVersion); err == nil && gv.Group == resource.APIGroup {
 					for _, apiResource := range resourceList.APIResources {
-						if contains(apiResource.Verbs, "get") &&
-							contains(apiResource.Verbs, "list") &&
-							contains(apiResource.Verbs, "watch") {
-
+						if isReadable(apiResource.Verbs) {
 							gvk := gv.WithKind(apiResource.Kind)
 							if err := r.RegisterResourceWatcher(gvk); err != nil {
 								return ctrl.Result{}, err
@@ -194,7 +192,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *operatorv1alpha1.ShardConfiguration) error {
 	log := log.FromContext(ctx)
-	shardKey := fmt.Sprintf("shard-index.%s/%s", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
+	shardKey := fmt.Sprintf("shard.%s/%s", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
 	var list metav1.PartialObjectMetadataList
 	list.SetGroupVersionKind(gvk)
 	err := r.List(ctx, &list)

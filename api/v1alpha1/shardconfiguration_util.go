@@ -53,8 +53,7 @@ func ShouldEnqueueObjectForShard(kbClient client.Client, shardConfig string, lab
 }
 
 func ExtractShardKeyFromLabels(labels map[string]string, shardConfigName string) string {
-	// klog.Infof("got pg labels: %v", labels)
-	shardKey := fmt.Sprintf("shard-index.%s/%s", SchemeGroupVersion.Group, shardConfigName)
+	shardKey := fmt.Sprintf("shard.%s/%s", SchemeGroupVersion.Group, shardConfigName)
 	val, ok := labels[shardKey]
 	if !ok {
 		return ""

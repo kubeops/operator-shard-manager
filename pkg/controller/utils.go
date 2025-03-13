@@ -16,6 +16,8 @@ limitations under the License.
 
 package controller
 
+import "gomodules.xyz/sets"
+
 func getUpdatedPodLists(existing, podLists []string) []string {
 	if len(existing) > len(podLists) {
 		return handleDownScaling(existing, podLists)
@@ -82,11 +84,6 @@ func getNextAvailableIndex(next int, pods []string) int {
 	return 0
 }
 
-func contains(s []string, str string) bool {
-	for _, v := range s {
-		if v == str {
-			return true
-		}
-	}
-	return false
+func isReadable(verbs []string) bool {
+	return sets.NewString(verbs...).HasAll("get", "list", "watch")
 }
