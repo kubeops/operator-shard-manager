@@ -28,7 +28,6 @@ import (
 
 	operatorv1alpha1 "kubeops.dev/operator-shard-manager/api/v1alpha1"
 
-	"github.com/cespare/xxhash/v2"
 	"gomodules.xyz/consistent"
 	apps "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -94,7 +93,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := r.Get(ctx, req.NamespacedName, &cfg); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	klog.Infof("Reconciling ShardConfiguration %s/%s", cfg.Namespace, cfg.Name)
+	klog.V(5).Infof("Reconciling ShardConfiguration %s", cfg.Name)
 	ctrlMap := make(map[kmapi.TypedObjectReference][]string)
 	for _, ref := range cfg.Status.Controllers {
 		ctrlMap[ref.TypedObjectReference] = ref.Pods
@@ -145,12 +144,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	for i := 0; i < shardCount; i++ {
 		members = append(members, Member{ID: i})
 	}
-	cc := consistent.New(members, consistent.Config{
-		PartitionCount:    getBetterPartitionCount(shardCount, 1.0),
-		ReplicationFactor: 1,
-		Load:              1.0,
-		Hasher:            hasher{},
-	})
+	cc := newConsistentConfig(members, shardCount)
 	for _, resource := range cfg.Spec.Resources {
 		if resource.Kind != "" {
 			mapping, err := r.mapper.RESTMapping(schema.GroupKind{
@@ -226,15 +220,6 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 		}
 	}
 	return nil
-}
-
-func contains(s []string, str string) bool {
-	for _, v := range s {
-		if v == str {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *ShardConfigurationReconciler) RegisterResourceWatcher(gvk schema.GroupVersionKind) error {
@@ -428,30 +413,4 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 	default:
 		return nil, errors.New("controller must be one of Deployment/StatefulSet/DaemonSet")
 	}
-}
-
-// consistent package doesn't provide a default hashing function.
-// You should provide a proper one to distribute keys/members uniformly.
-type hasher struct{}
-
-func (h hasher) Sum64(data []byte) uint64 {
-	// you should use a proper hash function for uniformity.
-	return xxhash.Sum64(data)
-}
-
-type Member struct{ ID int }
-
-func (M Member) String() string {
-	return strconv.Itoa(M.ID)
-}
-
-var _ consistent.Member = Member{}
-
-func getNextAvailableIndex(next int, pods []string) int {
-	for i := next; i < len(pods); i++ {
-		if pods[i] == "" {
-			return i
-		}
-	}
-	return 0
 }
