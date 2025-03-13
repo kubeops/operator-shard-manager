@@ -375,7 +375,7 @@ install:
 		--set image.registry=$(REGISTRY) \
 		--namespace=$(KUBE_NAMESPACE) --create-namespace \
 		--set image.tag=$(TAG_PROD) \
-		--set imagePullPolicy=$(IMAGE_PULL_POLICY) \
+        --set image.pullPolicy=$(IMAGE_PULL_POLICY) \
 		$(IMAGE_PULL_SECRETS);
 
 .PHONY: uninstall
