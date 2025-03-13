@@ -138,7 +138,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if opresult != controllerutil.OperationResultNone {
 		log.Info(string(opresult))
 	}
-	if shardCount == -1 {
+	if shardCount == -1 || shardCount == 0 {
 		return ctrl.Result{RequeueAfter: time.Second * 2}, nil
 	}
 	members := make([]consistent.Member, 0, shardCount)
