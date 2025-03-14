@@ -44,7 +44,7 @@ func ShouldEnqueueObjectForShard(kbClient client.Client, shardConfig string, lab
 		klog.Warningf("shard-config provided, but no shardId found in the labels, skip enqueuing object")
 		return false
 	}
-	requeue, err := ShouldReconcileByShard(kbClient, shardId, shardConfig)
+	requeue, err := ShouldReconcileByShard(kbClient, shardConfig, shardId)
 	if err != nil {
 		klog.Warningf("ShouldReconcileByShard failed with err: %v", err)
 		return false
