@@ -24,11 +24,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	operatorv1alpha1 "kubeops.dev/operator-shard-manager/api/v1alpha1"
 
-	"github.com/buraksezer/consistent"
-	"github.com/cespare/xxhash/v2"
+	"gomodules.xyz/consistent"
 	apps "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
+	"k8s.io/klog/v2"
 	kmapi "kmodules.xyz/client-go/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -92,7 +93,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := r.Get(ctx, req.NamespacedName, &cfg); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
+	klog.V(5).Infof("Reconciling ShardConfiguration %s", cfg.Name)
 	ctrlMap := make(map[kmapi.TypedObjectReference][]string)
 	for _, ref := range cfg.Status.Controllers {
 		ctrlMap[ref.TypedObjectReference] = ref.Pods
@@ -101,7 +102,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	shardCount := -1
 	for _, ref := range cfg.Spec.Controllers {
-		pods, err := ListPods(ctx, r.Client, ref)
+		podLists, err := ListPods(ctx, r.Client, ref)
 		if apierrors.IsNotFound(err) {
 			continue
 		} else if err != nil {
@@ -109,40 +110,21 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 
 		if shardCount == -1 {
-			shardCount = len(pods)
-		} else if shardCount != len(pods) {
-			return ctrl.Result{}, fmt.Errorf("expected %d shards, got %d for controller %s/%s %s/%s", shardCount, len(pods), ref.APIGroup, ref.Kind, ref.Namespace, ref.Name)
+			shardCount = len(podLists)
+		} else if shardCount != len(podLists) {
+			klog.Infof("expected %d shards, got %d for controller %s/%s %s/%s", shardCount, len(podLists), ref.APIGroup, ref.Kind, ref.Namespace, ref.Name)
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 
 		if existing, ok := ctrlMap[ref]; !ok {
 			allocs = append(allocs, operatorv1alpha1.ControllerAllocation{
 				TypedObjectReference: ref,
-				Pods:                 pods,
+				Pods:                 podLists,
 			})
 		} else {
-			if len(pods) > len(existing) {
-				existing = append(existing, make([]string, len(pods)-len(existing))...)
-			} else if len(pods) < len(existing) {
-				existing = existing[:len(pods)]
-			}
-
-			idxMap := make(map[string]int)
-			for idx, pod := range pods {
-				idxMap[pod] = idx
-			}
-
-			nextAvailable := 0
-			for idx, pod := range existing {
-				if pi, ok := idxMap[pod]; ok {
-					pods[pi] = ""
-				} else {
-					existing[idx], nextAvailable = nextPod(pods, nextAvailable)
-				}
-			}
-
 			allocs = append(allocs, operatorv1alpha1.ControllerAllocation{
 				TypedObjectReference: ref,
-				Pods:                 existing,
+				Pods:                 getUpdatedPodLists(existing, podLists),
 			})
 		}
 	}
@@ -156,19 +138,14 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if opresult != controllerutil.OperationResultNone {
 		log.Info(string(opresult))
 	}
-
-	shardKey := fmt.Sprintf("shard.%s/%s", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
-
+	if shardCount <= 0 {
+		return ctrl.Result{RequeueAfter: time.Second * 2}, nil
+	}
 	members := make([]consistent.Member, 0, shardCount)
 	for i := 0; i < shardCount; i++ {
 		members = append(members, Member{ID: i})
 	}
-	cc := consistent.New(members, consistent.Config{
-		PartitionCount:    shardCount,
-		ReplicationFactor: 1,
-		Load:              1.25,
-		Hasher:            hasher{},
-	})
+	cc := newConsistentConfig(members, shardCount)
 	for _, resource := range cfg.Spec.Resources {
 		if resource.Kind != "" {
 			mapping, err := r.mapper.RESTMapping(schema.GroupKind{
@@ -184,7 +161,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 				return ctrl.Result{}, err
 			}
 
-			if err := r.UpdateShardLabel(ctx, cc, shardKey, gvk); err != nil {
+			if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg); err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
@@ -195,16 +172,12 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 			for _, resourceList := range resourceLists {
 				if gv, err := schema.ParseGroupVersion(resourceList.GroupVersion); err == nil && gv.Group == resource.APIGroup {
 					for _, apiResource := range resourceList.APIResources {
-						if contains(apiResource.Verbs, "get") &&
-							contains(apiResource.Verbs, "list") &&
-							contains(apiResource.Verbs, "watch") {
-
+						if isReadable(apiResource.Verbs) {
 							gvk := gv.WithKind(apiResource.Kind)
 							if err := r.RegisterResourceWatcher(gvk); err != nil {
 								return ctrl.Result{}, err
 							}
-
-							if err := r.UpdateShardLabel(ctx, cc, shardKey, gvk); err != nil {
+							if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg); err != nil {
 								return ctrl.Result{}, err
 							}
 						}
@@ -217,9 +190,9 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	return ctrl.Result{}, nil
 }
 
-func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, shardKey string, gvk schema.GroupVersionKind) error {
+func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *operatorv1alpha1.ShardConfiguration) error {
 	log := log.FromContext(ctx)
-
+	shardKey := fmt.Sprintf("shard.%s/%s", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
 	var list metav1.PartialObjectMetadataList
 	list.SetGroupVersionKind(gvk)
 	err := r.List(ctx, &list)
@@ -247,37 +220,16 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 	return nil
 }
 
-func nextPod(pods []string, start int) (string, int) {
-	for i := start; i < len(pods); i++ {
-		if pods[i] != "" {
-			result := pods[i]
-			pods[i] = ""
-			return result, i + 1
-		}
-	}
-	return "", -1
-}
-
-func contains(s []string, str string) bool {
-	for _, v := range s {
-		if v == str {
-			return true
-		}
-	}
-	return false
-}
-
 func (r *ShardConfigurationReconciler) RegisterResourceWatcher(gvk schema.GroupVersionKind) error {
 	r.resMu.Lock()
 	defer r.resMu.Unlock()
-
 	if _, ok := r.resGKs[gvk.GroupKind()]; ok {
 		return nil
 	}
 
 	var obj metav1.PartialObjectMetadata
 	obj.SetGroupVersionKind(gvk)
-	return r.ctrl.Watch(source.Kind[*metav1.PartialObjectMetadata](r.cache, &obj, handler.TypedEnqueueRequestsFromMapFunc[*metav1.PartialObjectMetadata](func(ctx context.Context, md *metav1.PartialObjectMetadata) []reconcile.Request {
+	err := r.ctrl.Watch(source.Kind[*metav1.PartialObjectMetadata](r.cache, &obj, handler.TypedEnqueueRequestsFromMapFunc[*metav1.PartialObjectMetadata](func(ctx context.Context, md *metav1.PartialObjectMetadata) []reconcile.Request {
 		var list operatorv1alpha1.ShardConfigurationList
 		err := r.List(context.TODO(), &list)
 		if err != nil {
@@ -298,6 +250,11 @@ func (r *ShardConfigurationReconciler) RegisterResourceWatcher(gvk schema.GroupV
 		}
 		return result
 	})))
+	if err != nil {
+		return err
+	}
+	r.resGKs[gvk.GroupKind()] = struct{}{}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -340,6 +297,7 @@ func (r *ShardConfigurationReconciler) SetupWithManager(mgr ctrl.Manager) error 
 }
 
 func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectReference) ([]string, error) {
+	// TODO: Ignore terminating pods
 	if ref.APIGroup != "apps" {
 		return nil, errors.New("controller must be one of Deployment/StatefulSet/Daemonset")
 	}
@@ -376,7 +334,7 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 			if err != nil {
 				return nil, err
 			}
-			if metav1.IsControlledBy(&pod, &rs) {
+			if metav1.IsControlledBy(&pod, &rs) && pod.DeletionTimestamp == nil {
 				pods = append(pods, pod.Name)
 			}
 		}
@@ -404,7 +362,7 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 		}
 		pods := make([]string, 0, len(list.Items))
 		for _, pod := range list.Items {
-			if metav1.IsControlledBy(&pod, &obj) {
+			if metav1.IsControlledBy(&pod, &obj) && pod.DeletionTimestamp == nil {
 				pods = append(pods, pod.Name)
 			}
 		}
@@ -444,7 +402,7 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 		}
 		pods := make([]string, 0, len(list.Items))
 		for _, pod := range list.Items {
-			if metav1.IsControlledBy(&pod, &obj) {
+			if metav1.IsControlledBy(&pod, &obj) && pod.DeletionTimestamp == nil {
 				pods = append(pods, pod.Name)
 			}
 		}
@@ -454,20 +412,3 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 		return nil, errors.New("controller must be one of Deployment/StatefulSet/DaemonSet")
 	}
 }
-
-// consistent package doesn't provide a default hashing function.
-// You should provide a proper one to distribute keys/members uniformly.
-type hasher struct{}
-
-func (h hasher) Sum64(data []byte) uint64 {
-	// you should use a proper hash function for uniformity.
-	return xxhash.Sum64(data)
-}
-
-type Member struct{ ID int }
-
-func (M Member) String() string {
-	return strconv.Itoa(M.ID)
-}
-
-var _ consistent.Member = Member{}

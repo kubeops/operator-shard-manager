@@ -176,8 +176,9 @@ func (c *Consistent) averageLoad() float64 {
 	if len(c.members) == 0 {
 		return 0
 	}
-
-	avgLoad := float64(c.partitionCount/uint64(len(c.members))) * c.config.Load
+	partitionCountFloat := float64(c.partitionCount)
+	memberCountFloat := float64(len(c.members))
+	avgLoad := (partitionCountFloat / memberCountFloat) * c.config.Load
 	return math.Ceil(avgLoad)
 }
 
@@ -186,7 +187,7 @@ func (c *Consistent) distributeWithLoad(partID, idx int, partitions map[int]*Mem
 	var count int
 	for {
 		count++
-		if count >= len(c.sortedSet) {
+		if count > len(c.sortedSet) {
 			// User needs to decrease partition count, increase member count or increase load factor.
 			panic("not enough room to distribute partitions")
 		}

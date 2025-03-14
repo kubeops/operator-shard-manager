@@ -1,6 +1,6 @@
 consistent
 ==========
-[![Go Reference](https://pkg.go.dev/badge/github.com/buraksezer/consistent.svg)](https://pkg.go.dev/github.com/buraksezer/consistent) ![Build Status](https://github.com/buraksezer/consistent/actions/workflows/tests.yml/badge.svg?branch=master) ![Linter](https://github.com/buraksezer/consistent/actions/workflows/lint.yml/badge.svg?branch=master) [![Coverage](http://gocover.io/_badge/github.com/buraksezer/consistent)](http://gocover.io/github.com/buraksezer/consistent) [![Go Report Card](https://goreportcard.com/badge/github.com/buraksezer/consistent)](https://goreportcard.com/report/github.com/buraksezer/consistent) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)  
+[![Go Reference](https://pkg.go.dev/badge/gomodules.xyz/consistent.svg)](https://pkg.go.dev/gomodules.xyz/consistent) ![Build Status](https://gomodules.xyz/consistent/actions/workflows/tests.yml/badge.svg?branch=master) ![Linter](https://gomodules.xyz/consistent/actions/workflows/lint.yml/badge.svg?branch=master) [![Coverage](http://gocover.io/_badge/gomodules.xyz/consistent)](http://gocover.io/gomodules.xyz/consistent) [![Go Report Card](https://goreportcard.com/badge/gomodules.xyz/consistent)](https://goreportcard.com/report/gomodules.xyz/consistent) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)  
 
 
 This library provides a consistent hashing function which simultaneously achieves both uniformity and consistency. 
@@ -49,10 +49,11 @@ Note that the number of partitions cannot be changed after creation.
 Notable Users
 -------------
 
-[buraksezer/consistent](https://github.com/buraksezer/consistent) is used at production by the following projects:
+[buraksezer/consistent](https://gomodules.xyz/consistent) is used at production by the following projects:
 
 * [buraksezer/olric](https://github.com/buraksezer/olric): Embeddable, distributed data structures in Go.
 * [open-telemetry/opentelemetry-operator](https://github.com/open-telemetry/opentelemetry-operator): Kubernetes Operator for OpenTelemetry Collector.
+* [giantswarm/starboard-exporter](https://github.com/giantswarm/starboard-exporter): Exposes Prometheus metrics from [Starboard](https://github.com/aquasecurity/starboard)'s `VulnerabilityReport`, `ConfigAuditReport`, and other custom resources (CRs).
 * [megaease/easegress](https://github.com/megaease/easegress): A Cloud Native traffic orchestration system.
 * [chrislusf/seaweedfs](https://github.com/chrislusf/seaweedfs): SeaweedFS is a distributed storage system for blobs, objects, files, and data warehouse, to store and serve billions of files fast!.
 * [erda-project/erda](https://github.com/erda-project/erda): An enterprise-grade Cloud-Native application platform for Kubernetes.
@@ -70,10 +71,10 @@ Install
 With a correctly configured Go environment:
 
 ```
-go get github.com/buraksezer/consistent
+go get gomodules.xyz/consistent
 ```
 
-You will find some useful usage samples in [examples](https://github.com/buraksezer/consistent/tree/master/_examples) folder.
+You will find some useful usage samples in [examples](https://gomodules.xyz/consistent/tree/master/_examples) folder.
 
 Configuration
 -------------
@@ -135,8 +136,8 @@ BenchmarkGetClosestN-4   	  500000	      2974 ns/op
 Examples
 --------
 
-The most basic use of consistent package should be like this. For detailed list of functions, [visit godoc.org.](https://godoc.org/github.com/buraksezer/consistent)
-More sample code can be found under [_examples](https://github.com/buraksezer/consistent/tree/master/_examples).
+The most basic use of consistent package should be like this. For detailed list of functions, [visit godoc.org.](https://godoc.org/gomodules.xyz/consistent)
+More sample code can be found under [_examples](https://gomodules.xyz/consistent/tree/master/_examples).
 
 ```go
 package main
@@ -144,7 +145,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/buraksezer/consistent"
+	"gomodules.xyz/consistent"
 	"github.com/cespare/xxhash"
 )
 
