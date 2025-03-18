@@ -25,7 +25,7 @@ COMPRESS ?= no
 
 CRD_OPTIONS          ?= "crd:generateEmbeddedObjectMeta=true,allowDangerousTypes=true"
 # https://github.com/appscodelabs/gengo-builder
-CODE_GENERATOR_IMAGE ?= ghcr.io/appscode/gengo:release-1.29
+CODE_GENERATOR_IMAGE ?= ghcr.io/appscode/gengo:release-1.32
 
 # Where to push the docker image.
 REGISTRY ?= ghcr.io/appscode
