@@ -362,7 +362,7 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 		}
 		pods := make([]string, 0, len(list.Items))
 		for _, pod := range list.Items {
-			if metav1.IsControlledBy(&pod, &obj) && pod.DeletionTimestamp == nil {
+			if metav1.IsControlledBy(&pod, &obj) {
 				pods = append(pods, pod.Name)
 			}
 		}
