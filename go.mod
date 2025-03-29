@@ -99,6 +99,8 @@ require (
 	gomodules.xyz/clock v0.0.0-20200817085942-06523dba733f // indirect
 	gomodules.xyz/flags v0.1.3 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
+	gomodules.xyz/mergo v0.3.13 // indirect
+	gomodules.xyz/pointer v0.1.0 // indirect
 	gomodules.xyz/wait v0.2.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
