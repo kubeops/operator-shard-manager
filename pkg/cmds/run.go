@@ -21,7 +21,7 @@ import (
 	"os"
 	"path/filepath"
 
-	operatorv1alpha1 "kubeops.dev/operator-shard-manager/api/v1alpha1"
+	shardapi "kubeops.dev/operator-shard-manager/api/v1alpha1"
 	"kubeops.dev/operator-shard-manager/pkg/controller"
 
 	"github.com/spf13/cobra"
@@ -50,7 +50,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(operatorv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(shardapi.AddToScheme(scheme))
 	utilruntime.Must(apiregistrationv1.AddToScheme(scheme))
 }
 

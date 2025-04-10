@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	operatorv1alpha1 "kubeops.dev/operator-shard-manager/api/v1alpha1"
+	shardapi "kubeops.dev/operator-shard-manager/api/v1alpha1"
 
 	"gomodules.xyz/consistent"
 	apps "k8s.io/api/apps/v1"
@@ -39,6 +39,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/klog/v2"
 	kmapi "kmodules.xyz/client-go/api/v1"
+	core_util "kmodules.xyz/client-go/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -89,7 +90,7 @@ func NewShardConfigurationReconciler(mgr manager.Manager, d discovery.DiscoveryI
 func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	var cfg operatorv1alpha1.ShardConfiguration
+	var cfg shardapi.ShardConfiguration
 	if err := r.Get(ctx, req.NamespacedName, &cfg); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -98,7 +99,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	for _, ref := range cfg.Status.Controllers {
 		ctrlMap[ref.TypedObjectReference] = ref.Pods
 	}
-	allocs := make([]operatorv1alpha1.ControllerAllocation, 0, len(cfg.Spec.Controllers))
+	allocs := make([]shardapi.ControllerAllocation, 0, len(cfg.Spec.Controllers))
 
 	shardCount := -1
 	for _, ref := range cfg.Spec.Controllers {
@@ -117,18 +118,31 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 
 		if existing, ok := ctrlMap[ref]; !ok {
-			allocs = append(allocs, operatorv1alpha1.ControllerAllocation{
+			allocs = append(allocs, shardapi.ControllerAllocation{
 				TypedObjectReference: ref,
 				Pods:                 podLists,
 			})
 		} else {
-			allocs = append(allocs, operatorv1alpha1.ControllerAllocation{
+			allocs = append(allocs, shardapi.ControllerAllocation{
 				TypedObjectReference: ref,
 				Pods:                 getUpdatedPodLists(existing, podLists),
 			})
 		}
 	}
+	if cfg.DeletionTimestamp != nil {
+		if shardCount <= 0 {
+			_, err := controllerutil.CreateOrPatch(ctx, r.Client, &cfg, func() error {
+				cfg.ObjectMeta = core_util.RemoveFinalizer(cfg.ObjectMeta, shardapi.SchemeGroupVersion.Group)
+				return nil
+			})
+			return ctrl.Result{}, err
+		} else {
+			// shardCount is greater than 0 means, this shardConfig is getting used by some controllers. We will not let this get deleted in that case.
+			klog.Infof("Config %v is in use by %v. Can't delete it.", cfg.Name, cfg.Spec.Controllers)
+		}
+	}
 	opresult, err := controllerutil.CreateOrPatch(ctx, r.Client, &cfg, func() error {
+		cfg.ObjectMeta = core_util.AddFinalizer(cfg.ObjectMeta, shardapi.SchemeGroupVersion.Group)
 		cfg.Status.Controllers = allocs
 		return nil
 	})
@@ -190,9 +204,9 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	return ctrl.Result{}, nil
 }
 
-func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *operatorv1alpha1.ShardConfiguration) error {
+func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration) error {
 	log := log.FromContext(ctx)
-	shardKey := fmt.Sprintf("shard.%s/%s", operatorv1alpha1.SchemeGroupVersion.Group, cfg.Name)
+	shardKey := fmt.Sprintf("shard.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
 	var list metav1.PartialObjectMetadataList
 	list.SetGroupVersionKind(gvk)
 	err := r.List(ctx, &list)
@@ -230,7 +244,7 @@ func (r *ShardConfigurationReconciler) RegisterResourceWatcher(gvk schema.GroupV
 	var obj metav1.PartialObjectMetadata
 	obj.SetGroupVersionKind(gvk)
 	err := r.ctrl.Watch(source.Kind[*metav1.PartialObjectMetadata](r.cache, &obj, handler.TypedEnqueueRequestsFromMapFunc[*metav1.PartialObjectMetadata](func(ctx context.Context, md *metav1.PartialObjectMetadata) []reconcile.Request {
-		var list operatorv1alpha1.ShardConfigurationList
+		var list shardapi.ShardConfigurationList
 		err := r.List(context.TODO(), &list)
 		if err != nil {
 			return nil
@@ -260,7 +274,7 @@ func (r *ShardConfigurationReconciler) RegisterResourceWatcher(gvk schema.GroupV
 // SetupWithManager sets up the controller with the Manager.
 func (r *ShardConfigurationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	appHandler := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-		var list operatorv1alpha1.ShardConfigurationList
+		var list shardapi.ShardConfigurationList
 		err := r.List(context.TODO(), &list)
 		if err != nil {
 			return nil
@@ -287,7 +301,7 @@ func (r *ShardConfigurationReconciler) SetupWithManager(mgr ctrl.Manager) error 
 
 	var err error
 	r.ctrl, err = ctrl.NewControllerManagedBy(mgr).
-		For(&operatorv1alpha1.ShardConfiguration{}).
+		For(&shardapi.ShardConfiguration{}).
 		Watches(&apps.Deployment{}, appHandler).
 		Watches(&apps.DaemonSet{}, appHandler).
 		Watches(&apps.StatefulSet{}, appHandler).
