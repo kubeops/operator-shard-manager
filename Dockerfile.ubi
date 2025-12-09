@@ -28,7 +28,7 @@ COPY LICENSE /licenses/
 
 RUN set -x \
   && microdnf update -y \
-  && microdnf install -y ca-certificates tzdata openssh-client \
+  && microdnf install -y ca-certificates tzdata openssh-clients \
   && microdnf clean all
 
 ENV TZ=Etc/UTC
