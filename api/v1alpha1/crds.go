@@ -22,6 +22,6 @@ import (
 	"kmodules.xyz/client-go/apiextensions"
 )
 
-func (_ ShardConfiguration) CustomResourceDefinition() *apiextensions.CustomResourceDefinition {
+func (ShardConfiguration) CustomResourceDefinition() *apiextensions.CustomResourceDefinition {
 	return crds.MustCustomResourceDefinition(SchemeGroupVersion.WithResource(ResourceShardConfigurations))
 }
