@@ -473,6 +473,7 @@ push-to-kind: container
 	@kind load docker-image $(IMAGE):$(TAG_PROD)
 	@echo "Image has been pushed successfully into kind cluster."
 
+
 .PHONY: deploy-to-kind
 deploy-to-kind: push-to-kind install
 
