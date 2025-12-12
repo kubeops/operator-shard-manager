@@ -1,0 +1,28 @@
+package controller
+
+const (
+	ResourceKindCassandraOpsRequest     = "CassandraOpsRequest"
+	ResourceKindClickhouseOpsRequest    = "ClickhouseOpsRequest"
+	ResourceKindDruidOpsRequest         = "DruidOpsRequest"
+	ResourceKindElasticsearchOpsRequest = "ElasticsearchOpsRequest"
+	ResourceKindEtcdOpsRequest          = "EtcdOpsRequest"
+	ResourceKindFerretdbOpsRequest      = "FerretdbOpsRequest"
+	ResourceKindHazelcastOpsRequest     = "HazelcastOpsRequest"
+	ResourceKindIgniteOpsRequest        = "IgniteOpsRequest"
+	ResourceKindKafkaOpsRequest         = "KafkaOpsRequest"
+	ResourceKindMariadbOpsRequest       = "MariadbOpsRequest"
+	ResourceKindMemcachedOpsRequest     = "MemcachedOpsRequest"
+	ResourceKindMongodbOpsRequest       = "MongodbOpsRequest"
+	ResourceKindMssqlserverOpsRequest   = "MssqlserverOpsRequest"
+	ResourceKindMysqlOpsRequest         = "MysqlOpsRequest"
+	ResourceKindPerconaxtradbOpsRequest = "PerconaxtradbOpsRequest"
+	ResourceKindPgbouncerOpsRequest     = "PgbouncerOpsRequest"
+	ResourceKindPgpoolOpsRequest        = "PgpoolOpsRequest"
+	ResourceKindPostgresOpsRequest      = "PostgresOpsRequest"
+	ResourceKindProxysqlOpsRequest      = "ProxysqlOpsRequest"
+	ResourceKindRabbitmqOpsRequest      = "RabbitmqOpsRequest"
+	ResourceKindRedisOpsRequest         = "RedisOpsRequest"
+	ResourceKindRedisSentinelOpsRequest = "RedisSentinelOpsRequest"
+	ResourceKindSinglestoreOpsRequest   = "SinglestoreOpsRequest"
+	ResourceKindSolrOpsRequest          = "SolrOpsRequest"
+)

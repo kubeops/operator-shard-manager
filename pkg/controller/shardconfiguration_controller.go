@@ -33,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,6 +52,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+)
+
+const (
+	OpsGroupName = "ops.kubedb.com"
 )
 
 // ShardConfigurationReconciler reconciles a ShardConfiguration object
@@ -205,7 +210,11 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 }
 
 func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration) error {
-	log := log.FromContext(ctx)
+	if gvk.Group == OpsGroupName {
+		return r.UpdateShardLabelForOpsManager(ctx, cc, gvk, cfg)
+	}
+
+	logger := log.FromContext(ctx)
 	shardKey := fmt.Sprintf("shard.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
 	var list metav1.PartialObjectMetadataList
 	list.SetGroupVersionKind(gvk)
@@ -215,20 +224,94 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 	}
 	for _, obj := range list.Items {
 		m := cc.LocateKey([]byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName())))
+		labels := obj.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		if cfg.Spec.StickyShards && labels[shardKey] != "" && len(cfg.Status.Controllers) > 0 && len(cfg.Status.Controllers[0].Pods) > 0 {
+			id, err := strconv.Atoi(labels[shardKey])
+			if err != nil {
+				return err
+			}
+			if id < len(cfg.Status.Controllers[0].Pods) {
+				continue
+			}
+		}
 
-		if obj.Labels[shardKey] != m.String() {
+		if labels[shardKey] != m.String() {
 			opr, err := controllerutil.CreateOrPatch(ctx, r.Client, &obj, func() error {
 				if obj.Labels == nil {
 					obj.Labels = map[string]string{}
 				}
-				obj.Labels[shardKey] = m.String()
+				currentLabels := obj.GetLabels()
+				if currentLabels == nil {
+					currentLabels = make(map[string]string)
+				}
+				currentLabels[shardKey] = m.String()
+				obj.SetLabels(currentLabels)
 				return nil
 			})
 			if err != nil {
-				log.Error(err, fmt.Sprintf("failed to update labels for %s/%s %s/%s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()))
+				logger.Error(err, fmt.Sprintf("failed to update labels for %s/%s %s/%s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()))
 			} else {
-				log.Info(fmt.Sprintf("%s/%s %s/%s %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), opr))
+				logger.Info(fmt.Sprintf("%s/%s %s/%s %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), opr))
 			}
+		}
+	}
+	return nil
+}
+
+func (r *ShardConfigurationReconciler) UpdateShardLabelForOpsManager(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration) error {
+	logger := log.FromContext(ctx)
+	shardKey := fmt.Sprintf("shard.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
+	var list unstructured.UnstructuredList
+	list.SetGroupVersionKind(gvk)
+	err := r.List(ctx, &list)
+	if err != nil {
+		return err
+	}
+	for _, obj := range list.Items {
+		// Extract database reference from OpsRequest if available
+		dbName, found := GetDatabaseRefFromUnstructured(obj.Object)
+		if !found {
+			return fmt.Errorf("failed to extract database reference from OpsRequest %s/%s", obj.GetNamespace(), obj.GetName())
+		}
+
+		var db metav1.PartialObjectMetadata
+		db.SetGroupVersionKind(GetDatabaseGVKFromOpsRequestGVK(gvk))
+		err := r.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: dbName}, &db)
+		if err != nil {
+			return err
+		}
+
+		dbLabels := db.GetLabels()
+		if dbLabels == nil {
+			dbLabels = make(map[string]string)
+		}
+
+		// Get existing labels using GetLabels() method
+		labels := obj.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+
+		if dbLabels[shardKey] != "" && labels[shardKey] != dbLabels[shardKey] {
+			opr, err := controllerutil.CreateOrPatch(ctx, r.Client, &obj, func() error {
+				currentLabels := obj.GetLabels()
+				if currentLabels == nil {
+					currentLabels = make(map[string]string)
+				}
+				currentLabels[shardKey] = dbLabels[shardKey]
+				obj.SetLabels(currentLabels)
+				return nil
+			})
+			if err != nil {
+				logger.Error(err, fmt.Sprintf("failed to update labels for %s/%s %s/%s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()))
+			} else {
+				logger.Info(fmt.Sprintf("%s/%s %s/%s %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), opr))
+			}
+		} else if dbLabels[shardKey] == "" {
+			logger.Info(fmt.Sprintf("can't add shard lable to %v/%v, reason: database %s/%s does not have shard label %v", obj.GetNamespace(), obj.GetName(), db.GetNamespace(), db.GetName(), shardKey))
 		}
 	}
 	return nil

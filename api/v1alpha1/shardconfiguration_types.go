@@ -33,6 +33,13 @@ type ShardConfigurationSpec struct {
 	Controllers []kmapi.TypedObjectReference `json:"controllers,omitempty"`
 	// +kubebuilder:validation:MinItems=1
 	Resources []kmapi.TypeReference `json:"resources,omitempty"`
+	// StickyShards determines whether shard assignments should remain stable during replica scaling for this controller.
+	// When true, existing resource-to-pod assignments are preserved when scaling up/down (suitable for stateful workloads).
+	// When false, resources may be reassigned to different pods during scaling (suitable for stateless workloads).
+	// Default: false (allows resharding for stateless workloads)
+	// +optional
+	// +kubebuilder:default=false
+	StickyShards bool `json:"stickyShards,omitempty"`
 }
 
 type ControllerAllocation struct {

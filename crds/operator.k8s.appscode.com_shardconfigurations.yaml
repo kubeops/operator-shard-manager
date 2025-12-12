@@ -75,6 +75,14 @@ spec:
                   type: object
                 minItems: 1
                 type: array
+              stickyShards:
+                default: false
+                description: |-
+                  StickyShards determines whether shard assignments should remain stable during replica scaling for this controller.
+                  When true, existing resource-to-pod assignments are preserved when scaling up/down (suitable for stateful workloads).
+                  When false, resources may be reassigned to different pods during scaling (suitable for stateless workloads).
+                  Default: false (allows resharding for stateless workloads)
+                type: boolean
             type: object
           status:
             description: ShardConfigurationStatus defines the observed state of ShardConfiguration.
