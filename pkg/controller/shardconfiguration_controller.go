@@ -108,7 +108,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	shardCount := -1
 	for _, ref := range cfg.Spec.Controllers {
-		podLists, err := ListPods(ctx, r.Client, ref)
+		podLists, err := ListPods(ctx, r.Client, ref, cfg.Spec.StickyShards)
 		if apierrors.IsNotFound(err) {
 			continue
 		} else if err != nil {
@@ -393,7 +393,7 @@ func (r *ShardConfigurationReconciler) SetupWithManager(mgr ctrl.Manager) error 
 	return err
 }
 
-func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectReference) ([]string, error) {
+func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectReference, stickyShards bool) ([]string, error) {
 	// TODO: Ignore terminating pods
 	if ref.APIGroup != "apps" {
 		return nil, errors.New("controller must be one of Deployment/StatefulSet/Daemonset")
@@ -463,6 +463,13 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 				pods = append(pods, pod.Name)
 			}
 		}
+		// If we need to have sticky shard assignment to the resource, we need to have a sorted
+		// cfg.status.controllers.Pods, even though any pod is missing, we should re add this pod to the list
+
+		if stickyShards {
+			pods = revampPodListsForStatefulset(pods, ref.Name)
+		}
+
 		sort.Slice(pods, func(i, j int) bool {
 			idx_i := strings.LastIndexByte(pods[i], '-')
 			idx_j := strings.LastIndexByte(pods[j], '-')

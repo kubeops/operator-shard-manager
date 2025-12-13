@@ -17,6 +17,10 @@ limitations under the License.
 package controller
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	"gomodules.xyz/sets"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -260,4 +264,27 @@ func GetDatabaseGVKFromOpsRequestGVK(gvk schema.GroupVersionKind) schema.GroupVe
 		}
 	}
 	return schema.GroupVersionKind{}
+}
+
+func revampPodListsForStatefulset(pods []string, sts string) []string {
+	maxId := -1
+	for _, pod := range pods {
+		id, err := strconv.Atoi(getPodOrdinal(pod))
+		if err != nil {
+			continue
+		}
+		maxId = max(maxId, id)
+	}
+	if maxId == -1 {
+		return pods
+	}
+	newPods := make([]string, 0)
+	for i := 0; i <= maxId; i++ {
+		newPods = append(newPods, fmt.Sprintf("%s-%d", sts, i))
+	}
+	return newPods
+}
+
+func getPodOrdinal(pod string) string {
+	return strings.Split(pod, "-")[len(strings.Split(pod, "-"))-1]
 }
