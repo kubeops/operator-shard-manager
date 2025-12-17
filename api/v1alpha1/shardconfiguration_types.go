@@ -33,12 +33,12 @@ type ShardConfigurationSpec struct {
 	Controllers []kmapi.TypedObjectReference `json:"controllers,omitempty"`
 	// +kubebuilder:validation:MinItems=1
 	Resources                  []ResourceInfo `json:"resources,omitempty"`
-	AllowCooperativeScheduling bool           `json:"allowCooperativeScheduling,omitempty"`
 }
 
 type ResourceInfo struct {
 	kmapi.TypeReference `json:",inline"`
-	ShardKeyJsonPath    *string `json:"shardKeyJsonPath,omitempty"`
+	ShardKey    *string `json:"shardKey,omitempty"`
+	UseCooperativeShardMigration bool           `json:"useCooperativeShardMigration,omitempty"`
 }
 
 type ControllerAllocation struct {

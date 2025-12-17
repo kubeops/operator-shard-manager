@@ -40,8 +40,6 @@ spec:
           spec:
             description: ShardConfigurationSpec defines the desired state of ShardConfiguration.
             properties:
-              allowCooperativeScheduling:
-                type: boolean
               controllers:
                 items:
                   description: TypedObjectReference represents a typed namespaced
@@ -73,8 +71,10 @@ spec:
                       type: string
                     kind:
                       type: string
-                    shardKeyJsonPath:
+                    shardKey:
                       type: string
+                    useCooperativeShardMigration:
+                      type: boolean
                   type: object
                 minItems: 1
                 type: array

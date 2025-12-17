@@ -52,8 +52,8 @@ func (in *ControllerAllocation) DeepCopy() *ControllerAllocation {
 func (in *ResourceInfo) DeepCopyInto(out *ResourceInfo) {
 	*out = *in
 	out.TypeReference = in.TypeReference
-	if in.ShardKeyJsonPath != nil {
-		in, out := &in.ShardKeyJsonPath, &out.ShardKeyJsonPath
+	if in.ShardKey != nil {
+		in, out := &in.ShardKey, &out.ShardKey
 		*out = new(string)
 		**out = **in
 	}
