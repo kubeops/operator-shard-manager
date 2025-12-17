@@ -40,6 +40,8 @@ spec:
           spec:
             description: ShardConfigurationSpec defines the desired state of ShardConfiguration.
             properties:
+              allowCooperativeScheduling:
+                type: boolean
               controllers:
                 items:
                   description: TypedObjectReference represents a typed namespaced

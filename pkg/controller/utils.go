@@ -95,28 +95,61 @@ func isReadable(verbs []string) bool {
 	return sets.NewString(verbs...).HasAll("get", "list", "watch")
 }
 
-// GetDatabaseRefFromUnstructured extracts the databaseRef name from an unstructured object
-// This is useful for OpsRequest resources where we need to know the associated database
-// Returns the database name and true if found, empty string and false otherwise
-func GetDatabaseRefFromUnstructured(obj map[string]any) (string, bool) {
-	if obj == nil {
-		return "", false
-	}
-	// Navigate through the object structure to find spec.databaseRef.name
-	spec, ok := obj["spec"].(map[string]any)
-	if !ok {
-		return "", false
-	}
-	databaseRef, ok := spec["databaseRef"].(map[string]any)
-	if !ok {
-		return "", false
-	}
-	name, ok := databaseRef["name"].(string)
-	if !ok {
+// EvaluateJSONPath evaluates a simple JSONPath expression on an unstructured object
+// Supports paths like ".spec.databaseRef.name" or "spec.databaseRef.name"
+// Returns the value as a string and true if found, empty string and false otherwise
+func EvaluateJSONPath(obj map[string]any, jsonPath string) (string, bool) {
+	if obj == nil || jsonPath == "" {
 		return "", false
 	}
 
-	return name, true
+	// Remove leading dot if present
+	jsonPath = strings.TrimPrefix(jsonPath, ".")
+
+	// Split the path into parts
+	parts := strings.Split(jsonPath, ".")
+
+	// Navigate through the object structure
+	current := any(obj)
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+
+		// Try to cast current to map[string]any
+		currentMap, ok := current.(map[string]any)
+		if !ok {
+			return "", false
+		}
+
+		// Get the next value
+		next, exists := currentMap[part]
+		if !exists {
+			return "", false
+		}
+
+		// If this is the last part, try to convert to string
+		if i == len(parts)-1 {
+			switch v := next.(type) {
+			case string:
+				return v, true
+			case int:
+				return strconv.Itoa(v), true
+			case int64:
+				return strconv.FormatInt(v, 10), true
+			case float64:
+				return strconv.FormatFloat(v, 'f', -1, 64), true
+			case bool:
+				return strconv.FormatBool(v), true
+			default:
+				return fmt.Sprintf("%v", v), true
+			}
+		}
+
+		current = next
+	}
+
+	return "", false
 }
 
 func GetDatabaseGVKFromOpsRequestGVK(gvk schema.GroupVersionKind) schema.GroupVersionKind {

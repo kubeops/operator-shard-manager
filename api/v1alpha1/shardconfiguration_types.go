@@ -32,7 +32,8 @@ type ShardConfigurationSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	Controllers []kmapi.TypedObjectReference `json:"controllers,omitempty"`
 	// +kubebuilder:validation:MinItems=1
-	Resources []ResourceInfo `json:"resources,omitempty"`
+	Resources                  []ResourceInfo `json:"resources,omitempty"`
+	AllowCooperativeScheduling bool           `json:"allowCooperativeScheduling,omitempty"`
 }
 
 type ResourceInfo struct {
