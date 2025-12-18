@@ -54,10 +54,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-const (
-	OpsGroupName = "ops.kubedb.com"
-)
-
 // ShardConfigurationReconciler reconciles a ShardConfiguration object
 type ShardConfigurationReconciler struct {
 	client.Client
