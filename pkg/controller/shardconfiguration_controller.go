@@ -166,10 +166,6 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 	cc := newConsistentConfig(members, shardCount)
 	for _, resource := range cfg.Spec.Resources {
-		jsonPath := ""
-		if resource.ShardKeyJsonPath != nil {
-			jsonPath = *resource.ShardKeyJsonPath
-		}
 		if resource.Kind != "" {
 			mapping, err := r.mapper.RESTMapping(schema.GroupKind{
 				Group: resource.APIGroup,
@@ -184,7 +180,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 				return ctrl.Result{}, err
 			}
 
-			if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg, jsonPath); err != nil {
+			if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg, resource); err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
@@ -200,7 +196,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 							if err := r.RegisterResourceWatcher(gvk); err != nil {
 								return ctrl.Result{}, err
 							}
-							if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg, jsonPath); err != nil {
+							if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg, resource); err != nil {
 								return ctrl.Result{}, err
 							}
 						}
@@ -213,7 +209,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	return ctrl.Result{}, nil
 }
 
-func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration, jsonPath string) error {
+func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration, ri shardapi.ResourceInfo) error {
 	logger := log.FromContext(ctx)
 	shardKey := fmt.Sprintf("shard.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
 	nextShardKey := fmt.Sprintf("next.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
@@ -226,10 +222,10 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 	}
 	for _, obj := range list.Items {
 		var key []byte
-		if jsonPath != "" {
-			val, found := EvaluateJSONPath(obj.Object, jsonPath)
+		if ri.ShardKey != nil {
+			val, found := EvaluateJSONPath(obj.Object, *ri.ShardKey)
 			if !found {
-				return fmt.Errorf("failed to extract shard key from %s/%s %s/%s using jsonPath %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), jsonPath)
+				return fmt.Errorf("failed to extract shard key from %s/%s %s/%s using jsonPath %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), *ri.ShardKey)
 			}
 			key = []byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), val))
 		} else {
@@ -241,9 +237,9 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 		if labels == nil {
 			labels = make(map[string]string)
 		}
-		if labels[shardKey] == "" || (labels[shardKey] != "" && labels[shardKey] != m.String() && !cfg.Spec.AllowCooperativeScheduling) {
+		if labels[shardKey] == "" || (labels[shardKey] != "" && labels[shardKey] != m.String() && !ri.UseCooperativeShardMigration) {
 			labels[shardKey] = m.String()
-		} else if labels[shardKey] != "" && labels[shardKey] != m.String() && cfg.Spec.AllowCooperativeScheduling {
+		} else if labels[shardKey] != "" && labels[shardKey] != m.String() && ri.UseCooperativeShardMigration {
 			if len(cfg.Status.Controllers) > 0 && len(cfg.Status.Controllers[0].Pods) > 0 {
 				id, err := strconv.Atoi(labels[shardKey])
 				if err != nil {
