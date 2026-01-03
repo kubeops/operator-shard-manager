@@ -33,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -175,7 +176,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 				return ctrl.Result{}, err
 			}
 
-			if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg); err != nil {
+			if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg, resource); err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
@@ -191,7 +192,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 							if err := r.RegisterResourceWatcher(gvk); err != nil {
 								return ctrl.Result{}, err
 							}
-							if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg); err != nil {
+							if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg, resource); err != nil {
 								return ctrl.Result{}, err
 							}
 						}
@@ -204,30 +205,61 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	return ctrl.Result{}, nil
 }
 
-func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration) error {
-	log := log.FromContext(ctx)
+func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration, ri shardapi.ResourceInfo) error {
+	logger := log.FromContext(ctx)
 	shardKey := fmt.Sprintf("shard.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
-	var list metav1.PartialObjectMetadataList
+	nextShardKey := fmt.Sprintf("next.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
+
+	var list unstructured.UnstructuredList
 	list.SetGroupVersionKind(gvk)
 	err := r.List(ctx, &list)
 	if err != nil {
 		return err
 	}
 	for _, obj := range list.Items {
-		m := cc.LocateKey([]byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName())))
-
-		if obj.Labels[shardKey] != m.String() {
-			opr, err := controllerutil.CreateOrPatch(ctx, r.Client, &obj, func() error {
-				if obj.Labels == nil {
-					obj.Labels = map[string]string{}
+		var key []byte
+		if ri.ShardKey != nil {
+			val, found := EvaluateJSONPath(obj.Object, *ri.ShardKey)
+			if !found {
+				return fmt.Errorf("failed to extract shard key from %s/%s %s/%s using jsonPath %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), *ri.ShardKey)
+			}
+			key = []byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), val))
+		} else {
+			key = []byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName()))
+		}
+		m := cc.LocateKey(key)
+		changed := true
+		labels := obj.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		if labels[shardKey] == "" || (labels[shardKey] != "" && labels[shardKey] != m.String() && !ri.UseCooperativeShardMigration) {
+			labels[shardKey] = m.String()
+		} else if labels[shardKey] != "" && labels[shardKey] != m.String() && ri.UseCooperativeShardMigration {
+			if len(cfg.Status.Controllers) > 0 && len(cfg.Status.Controllers[0].Pods) > 0 {
+				id, err := strconv.Atoi(labels[shardKey])
+				if err != nil {
+					return err
 				}
-				obj.Labels[shardKey] = m.String()
+				if id >= len(cfg.Status.Controllers[0].Pods) {
+					labels[shardKey] = m.String()
+				} else {
+					labels[nextShardKey] = m.String()
+				}
+			}
+		} else if labels[shardKey] == m.String() {
+			changed = false
+		}
+
+		if changed {
+			opr, err := controllerutil.CreateOrPatch(ctx, r.Client, &obj, func() error {
+				obj.SetLabels(labels)
 				return nil
 			})
 			if err != nil {
-				log.Error(err, fmt.Sprintf("failed to update labels for %s/%s %s/%s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()))
+				logger.Error(err, fmt.Sprintf("failed to update labels for %s/%s %s/%s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()))
 			} else {
-				log.Info(fmt.Sprintf("%s/%s %s/%s %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), opr))
+				logger.Info(fmt.Sprintf("%s/%s %s/%s %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), opr))
 			}
 		}
 	}
@@ -380,6 +412,11 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 				pods = append(pods, pod.Name)
 			}
 		}
+		// If we need to have sticky shard assignment to the resource, we need to have a sorted
+		// cfg.status.controllers.Pods, even though any pod is missing, we should re add this pod to the list
+
+		pods = revampPodListsForStatefulset(pods, ref.Name)
+
 		sort.Slice(pods, func(i, j int) bool {
 			idx_i := strings.LastIndexByte(pods[i], '-')
 			idx_j := strings.LastIndexByte(pods[j], '-')
