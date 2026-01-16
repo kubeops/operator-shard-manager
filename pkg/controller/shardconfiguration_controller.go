@@ -157,6 +157,11 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	cc := newConsistentConfig(shardCount)
+	resourceLists, err := r.d.ServerPreferredResources()
+	if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
+		return ctrl.Result{}, err
+	}
+
 	for _, resource := range cfg.Spec.Resources {
 		if resource.Kind != "" {
 			mapping, err := r.mapper.RESTMapping(schema.GroupKind{
@@ -176,10 +181,6 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 				return ctrl.Result{}, err
 			}
 		} else {
-			resourceLists, err := r.d.ServerPreferredResources()
-			if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
-				return ctrl.Result{}, err
-			}
 			for _, resourceList := range resourceLists {
 				if gv, err := schema.ParseGroupVersion(resourceList.GroupVersion); err == nil && gv.Group == resource.APIGroup {
 					for _, apiResource := range resourceList.APIResources {
