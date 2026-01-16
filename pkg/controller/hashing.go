@@ -72,7 +72,11 @@ func getBetterPartitionCount(members int, load float64) int {
 	return candidate
 }
 
-func newConsistentConfig(members []consistent.Member, shardCount int) *consistent.Consistent {
+func newConsistentConfig(shardCount int) *consistent.Consistent {
+	members := make([]consistent.Member, 0, shardCount)
+	for i := 0; i < shardCount; i++ {
+		members = append(members, Member{ID: i})
+	}
 	return consistent.New(members, consistent.Config{
 		PartitionCount:    getBetterPartitionCount(shardCount, 1.0),
 		ReplicationFactor: 1,

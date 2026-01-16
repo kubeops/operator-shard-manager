@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -155,11 +155,13 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if shardCount <= 0 {
 		return ctrl.Result{RequeueAfter: time.Second * 2}, nil
 	}
-	members := make([]consistent.Member, 0, shardCount)
-	for i := 0; i < shardCount; i++ {
-		members = append(members, Member{ID: i})
+
+	cc := newConsistentConfig(shardCount)
+	resourceLists, err := r.d.ServerPreferredResources()
+	if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
+		return ctrl.Result{}, err
 	}
-	cc := newConsistentConfig(members, shardCount)
+
 	for _, resource := range cfg.Spec.Resources {
 		if resource.Kind != "" {
 			mapping, err := r.mapper.RESTMapping(schema.GroupKind{
@@ -175,14 +177,10 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 				return ctrl.Result{}, err
 			}
 
-			if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg); err != nil {
+			if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg, resource); err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
-			resourceLists, err := r.d.ServerPreferredResources()
-			if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
-				return ctrl.Result{}, err
-			}
 			for _, resourceList := range resourceLists {
 				if gv, err := schema.ParseGroupVersion(resourceList.GroupVersion); err == nil && gv.Group == resource.APIGroup {
 					for _, apiResource := range resourceList.APIResources {
@@ -191,7 +189,7 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 							if err := r.RegisterResourceWatcher(gvk); err != nil {
 								return ctrl.Result{}, err
 							}
-							if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg); err != nil {
+							if err := r.UpdateShardLabel(ctx, cc, gvk, &cfg, resource); err != nil {
 								return ctrl.Result{}, err
 							}
 						}
@@ -204,30 +202,71 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	return ctrl.Result{}, nil
 }
 
-func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration) error {
-	log := log.FromContext(ctx)
+func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc *consistent.Consistent, gvk schema.GroupVersionKind, cfg *shardapi.ShardConfiguration, ri shardapi.ResourceInfo) error {
+	logger := log.FromContext(ctx)
 	shardKey := fmt.Sprintf("shard.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
-	var list metav1.PartialObjectMetadataList
+	nextShardKey := fmt.Sprintf("next.%s/%s", shardapi.SchemeGroupVersion.Group, cfg.Name)
+
+	var list unstructured.UnstructuredList
 	list.SetGroupVersionKind(gvk)
 	err := r.List(ctx, &list)
 	if err != nil {
 		return err
 	}
-	for _, obj := range list.Items {
-		m := cc.LocateKey([]byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName())))
 
-		if obj.Labels[shardKey] != m.String() {
-			opr, err := controllerutil.CreateOrPatch(ctx, r.Client, &obj, func() error {
-				if obj.Labels == nil {
-					obj.Labels = map[string]string{}
+	ifShardKeyLabelNeedsToBeChanged := func(labels map[string]string, shardKey string, member consistent.Member) bool {
+		return labels[shardKey] != "" && labels[shardKey] != member.String()
+	}
+
+	for _, obj := range list.Items {
+		var key []byte
+		if ri.ShardKey != nil {
+			val, found := EvaluateJSONPath(obj.Object, *ri.ShardKey)
+			if !found {
+				return fmt.Errorf("failed to extract shard key from %s/%s %s/%s using jsonPath %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), *ri.ShardKey)
+			}
+			key = []byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), val))
+		} else {
+			key = []byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName()))
+		}
+		m := cc.LocateKey(key)
+		changed := false
+		labels := obj.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		if labels[shardKey] == "" {
+			labels[shardKey] = m.String()
+			changed = true
+		} else if ifShardKeyLabelNeedsToBeChanged(labels, shardKey, m) {
+			switch ri.UseCooperativeShardMigration {
+			case true:
+				if len(cfg.Status.Controllers) > 0 && len(cfg.Status.Controllers[0].Pods) > 0 {
+					id, err := strconv.Atoi(labels[shardKey])
+					if err != nil {
+						return err
+					}
+					if id >= len(cfg.Status.Controllers[0].Pods) {
+						labels[shardKey] = m.String()
+					} else {
+						labels[nextShardKey] = m.String()
+					}
 				}
-				obj.Labels[shardKey] = m.String()
+			case false:
+				labels[shardKey] = m.String()
+			}
+			changed = true
+		}
+
+		if changed {
+			opr, err := controllerutil.CreateOrPatch(ctx, r.Client, &obj, func() error {
+				obj.SetLabels(labels)
 				return nil
 			})
 			if err != nil {
-				log.Error(err, fmt.Sprintf("failed to update labels for %s/%s %s/%s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()))
+				logger.Error(err, fmt.Sprintf("failed to update labels for %s/%s %s/%s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName()))
 			} else {
-				log.Info(fmt.Sprintf("%s/%s %s/%s %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), opr))
+				logger.Info(fmt.Sprintf("%s/%s %s/%s %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), opr))
 			}
 		}
 	}
@@ -360,40 +399,8 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 		if err != nil {
 			return nil, err
 		}
-		sel, err := metav1.LabelSelectorAsSelector(obj.Spec.Selector)
-		if err != nil {
-			return nil, err
-		}
-		var list metav1.PartialObjectMetadataList
-		list.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   "",
-			Kind:    "Pod",
-			Version: "v1",
-		})
-		err = kc.List(ctx, &list, client.MatchingLabelsSelector{Selector: sel})
-		if err != nil {
-			return nil, err
-		}
-		pods := make([]string, 0, len(list.Items))
-		for _, pod := range list.Items {
-			if metav1.IsControlledBy(&pod, &obj) {
-				pods = append(pods, pod.Name)
-			}
-		}
-		sort.Slice(pods, func(i, j int) bool {
-			idx_i := strings.LastIndexByte(pods[i], '-')
-			idx_j := strings.LastIndexByte(pods[j], '-')
-			if idx_i == -1 || idx_j == -1 {
-				return pods[i] < pods[j]
-			}
-			oi, err_i := strconv.Atoi(pods[i][idx_i+1:])
-			oj, err_j := strconv.Atoi(pods[j][idx_j+1:])
-			if err_i != nil || err_j != nil {
-				return pods[i] < pods[j]
-			}
-			return oi < oj
-		})
-		return pods, nil
+		// Important: Resharding feature is not available for stateful sets
+		return buildPodList(obj.GetName(), *obj.Spec.Replicas), nil
 	case "DaemonSet":
 		var obj apps.DaemonSet
 		err := kc.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: ref.Namespace}, &obj)
