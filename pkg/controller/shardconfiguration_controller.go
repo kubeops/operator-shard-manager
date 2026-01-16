@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -156,11 +155,8 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if shardCount <= 0 {
 		return ctrl.Result{RequeueAfter: time.Second * 2}, nil
 	}
-	members := make([]consistent.Member, 0, shardCount)
-	for i := 0; i < shardCount; i++ {
-		members = append(members, Member{ID: i})
-	}
-	cc := newConsistentConfig(members, shardCount)
+
+	cc := newConsistentConfig(shardCount)
 	for _, resource := range cfg.Spec.Resources {
 		if resource.Kind != "" {
 			mapping, err := r.mapper.RESTMapping(schema.GroupKind{
@@ -392,45 +388,8 @@ func ListPods(ctx context.Context, kc client.Client, ref kmapi.TypedObjectRefere
 		if err != nil {
 			return nil, err
 		}
-		sel, err := metav1.LabelSelectorAsSelector(obj.Spec.Selector)
-		if err != nil {
-			return nil, err
-		}
-		var list metav1.PartialObjectMetadataList
-		list.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   "",
-			Kind:    "Pod",
-			Version: "v1",
-		})
-		err = kc.List(ctx, &list, client.MatchingLabelsSelector{Selector: sel})
-		if err != nil {
-			return nil, err
-		}
-		pods := make([]string, 0, len(list.Items))
-		for _, pod := range list.Items {
-			if metav1.IsControlledBy(&pod, &obj) {
-				pods = append(pods, pod.Name)
-			}
-		}
-		// If we need to have sticky shard assignment to the resource, we need to have a sorted
-		// cfg.status.controllers.Pods, even though any pod is missing, we should re add this pod to the list
-
-		pods = revampPodListsForStatefulset(pods, ref.Name)
-
-		sort.Slice(pods, func(i, j int) bool {
-			idx_i := strings.LastIndexByte(pods[i], '-')
-			idx_j := strings.LastIndexByte(pods[j], '-')
-			if idx_i == -1 || idx_j == -1 {
-				return pods[i] < pods[j]
-			}
-			oi, err_i := strconv.Atoi(pods[i][idx_i+1:])
-			oj, err_j := strconv.Atoi(pods[j][idx_j+1:])
-			if err_i != nil || err_j != nil {
-				return pods[i] < pods[j]
-			}
-			return oi < oj
-		})
-		return pods, nil
+		// Important: Resharding feature is not available for stateful sets
+		return buildPodList(obj.GetName(), *obj.Spec.Replicas), nil
 	case "DaemonSet":
 		var obj apps.DaemonSet
 		err := kc.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: ref.Namespace}, &obj)

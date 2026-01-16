@@ -151,25 +151,10 @@ func EvaluateJSONPath(obj map[string]any, jsonPath string) (string, bool) {
 	return "", false
 }
 
-func revampPodListsForStatefulset(pods []string, sts string) []string {
-	maxId := -1
-	for _, pod := range pods {
-		id, err := strconv.Atoi(getPodOrdinal(pod))
-		if err != nil {
-			continue
-		}
-		maxId = max(maxId, id)
+func buildPodList(ctrlName string, replCount int32) []string {
+	pods := make([]string, replCount)
+	for c := int32(0); c < replCount; c++ {
+		pods[c] = fmt.Sprintf("%s-%d", ctrlName, c)
 	}
-	if maxId == -1 {
-		return pods
-	}
-	newPods := make([]string, 0)
-	for i := 0; i <= maxId; i++ {
-		newPods = append(newPods, fmt.Sprintf("%s-%d", sts, i))
-	}
-	return newPods
-}
-
-func getPodOrdinal(pod string) string {
-	return strings.Split(pod, "-")[len(strings.Split(pod, "-"))-1]
+	return pods
 }
