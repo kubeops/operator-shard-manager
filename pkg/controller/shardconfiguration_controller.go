@@ -215,9 +215,6 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 	}
 
 	ifShardKeyLabelNeedsToBeChanged := func(labels map[string]string, shardKey string, member consistent.Member) bool {
-		if labels[shardKey] == "" {
-			return true
-		}
 		return labels[shardKey] != "" && labels[shardKey] != member.String()
 	}
 
@@ -238,8 +235,10 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 		if labels == nil {
 			labels = make(map[string]string)
 		}
-		if ifShardKeyLabelNeedsToBeChanged(labels, shardKey, m) {
+		if labels[shardKey] == "" {
+			labels[shardKey] = m.String()
 			changed = true
+		} else if ifShardKeyLabelNeedsToBeChanged(labels, shardKey, m) {
 			switch ri.UseCooperativeShardMigration {
 			case true:
 				if len(cfg.Status.Controllers) > 0 && len(cfg.Status.Controllers[0].Pods) > 0 {
@@ -256,6 +255,7 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 			case false:
 				labels[shardKey] = m.String()
 			}
+			changed = true
 		}
 
 		if changed {
