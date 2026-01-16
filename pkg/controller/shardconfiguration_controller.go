@@ -213,6 +213,14 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 	if err != nil {
 		return err
 	}
+
+	ifShardKeyLabelNeedsToBeChanged := func(labels map[string]string, shardKey string, member consistent.Member) bool {
+		if labels[shardKey] == "" {
+			return true
+		}
+		return labels[shardKey] != "" && labels[shardKey] != member.String()
+	}
+
 	for _, obj := range list.Items {
 		var key []byte
 		if ri.ShardKey != nil {
@@ -225,27 +233,29 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 			key = []byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName()))
 		}
 		m := cc.LocateKey(key)
-		changed := true
+		changed := false
 		labels := obj.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
 		}
-		if labels[shardKey] == "" || (labels[shardKey] != "" && labels[shardKey] != m.String() && !ri.UseCooperativeShardMigration) {
-			labels[shardKey] = m.String()
-		} else if labels[shardKey] != "" && labels[shardKey] != m.String() && ri.UseCooperativeShardMigration {
-			if len(cfg.Status.Controllers) > 0 && len(cfg.Status.Controllers[0].Pods) > 0 {
-				id, err := strconv.Atoi(labels[shardKey])
-				if err != nil {
-					return err
+		if ifShardKeyLabelNeedsToBeChanged(labels, shardKey, m) {
+			changed = true
+			switch ri.UseCooperativeShardMigration {
+			case true:
+				if len(cfg.Status.Controllers) > 0 && len(cfg.Status.Controllers[0].Pods) > 0 {
+					id, err := strconv.Atoi(labels[shardKey])
+					if err != nil {
+						return err
+					}
+					if id >= len(cfg.Status.Controllers[0].Pods) {
+						labels[shardKey] = m.String()
+					} else {
+						labels[nextShardKey] = m.String()
+					}
 				}
-				if id >= len(cfg.Status.Controllers[0].Pods) {
-					labels[shardKey] = m.String()
-				} else {
-					labels[nextShardKey] = m.String()
-				}
+			case false:
+				labels[shardKey] = m.String()
 			}
-		} else if labels[shardKey] == m.String() {
-			changed = false
 		}
 
 		if changed {
