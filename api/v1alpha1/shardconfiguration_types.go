@@ -37,8 +37,8 @@ type ShardConfigurationSpec struct {
 
 type ResourceInfo struct {
 	kmapi.TypeReference          `json:",inline"`
-	ShardKey                     *string `json:"shardKey,omitempty"`
-	UseCooperativeShardMigration bool    `json:"useCooperativeShardMigration,omitempty"`
+	ShardKeys                    []string `json:"shardKeys,omitempty"`
+	UseCooperativeShardMigration bool     `json:"useCooperativeShardMigration,omitempty"`
 }
 
 type ControllerAllocation struct {
