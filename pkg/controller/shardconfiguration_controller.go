@@ -220,15 +220,21 @@ func (r *ShardConfigurationReconciler) UpdateShardLabel(ctx context.Context, cc 
 
 	for _, obj := range list.Items {
 		var key []byte
-		if ri.ShardKey != nil {
-			val, found := EvaluateJSONPath(obj.Object, *ri.ShardKey)
+		for _, sk := range ri.ShardKeyCandidates {
+			val, found := EvaluateJSONPath(obj.Object, sk)
 			if !found {
-				return fmt.Errorf("failed to extract shard key from %s/%s %s/%s using jsonPath %s", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), *ri.ShardKey)
+				continue
 			}
 			key = []byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), val))
-		} else {
+			break
+		}
+		if ri.ShardKeyCandidates != nil && key == nil {
+			return fmt.Errorf("failed to extract shard key from %s/%s %s/%s using jsonPaths %v", obj.GroupVersionKind().Group, obj.GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), ri.ShardKeyCandidates)
+		}
+		if key == nil {
 			key = []byte(fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName()))
 		}
+
 		m := cc.LocateKey(key)
 		changed := false
 		labels := obj.GetLabels()
