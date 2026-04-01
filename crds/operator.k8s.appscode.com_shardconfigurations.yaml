@@ -71,7 +71,7 @@ spec:
                       type: string
                     kind:
                       type: string
-                    shardKeys:
+                    shardKeyCandidates:
                       items:
                         type: string
                       type: array

@@ -52,8 +52,8 @@ func (in *ControllerAllocation) DeepCopy() *ControllerAllocation {
 func (in *ResourceInfo) DeepCopyInto(out *ResourceInfo) {
 	*out = *in
 	out.TypeReference = in.TypeReference
-	if in.ShardKeys != nil {
-		in, out := &in.ShardKeys, &out.ShardKeys
+	if in.ShardKeyCandidates != nil {
+		in, out := &in.ShardKeyCandidates, &out.ShardKeyCandidates
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
