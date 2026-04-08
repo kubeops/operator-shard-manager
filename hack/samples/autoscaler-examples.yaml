@@ -1,0 +1,70 @@
+apiVersion: autoscaling.kubedb.com/v1alpha1
+kind: MSSQLServerAutoscaler
+metadata:
+  name: mssql-autoscaler
+  namespace: demo
+  # After ShardConfiguration is applied, the shard-manager will automatically add:
+  # labels:
+  #   shard.operator.k8s.appscode.com/kubedb-autoscaler: "0"  # or "1", "2", etc.
+spec:
+  databaseRef:
+    name: mssql-standalone
+  compute:
+    mssqlserver:
+      trigger: "On"
+      podLifeTimeThreshold: 5m
+      resourceDiffPercentage: 10
+      minAllowed:
+        cpu: 800m
+        memory: 2Gi
+      maxAllowed:
+        cpu: 2
+        memory: 4Gi
+      containerControlledValues: "RequestsAndLimits"
+      controlledResources: [ "cpu", "memory" ]
+---
+apiVersion: autoscaling.kubedb.com/v1alpha1
+kind: PostgresAutoscaler
+metadata:
+  name: pg-autoscaler
+  namespace: demo
+  # After ShardConfiguration is applied, the shard-manager will automatically add:
+  # labels:
+  #   shard.operator.k8s.appscode.com/kubedb-autoscaler: "1"  # or "0", "2", etc.
+spec:
+  databaseRef:
+    name: quick-postgres
+  compute:
+    postgres:
+      trigger: "On"
+      podLifeTimeThreshold: 5m
+      minAllowed:
+        cpu: 250m
+        memory: 350Mi
+      maxAllowed:
+        cpu: 1
+        memory: 1Gi
+      controlledResources: ["cpu", "memory"]
+---
+apiVersion: autoscaling.kubedb.com/v1alpha1
+kind: MongoDBAutoscaler
+metadata:
+  name: mongodb-autoscaler
+  namespace: demo
+  # After ShardConfiguration is applied, the shard-manager will automatically add:
+  # labels:
+  #   shard.operator.k8s.appscode.com/kubedb-autoscaler: "2"  # or "0", "1", etc.
+spec:
+  databaseRef:
+    name: mg-standalone
+  compute:
+    standalone:
+      trigger: "On"
+      podLifeTimeThreshold: 5m
+      minAllowed:
+        cpu: 500m
+        memory: 500Mi
+      maxAllowed:
+        cpu: 2
+        memory: 2Gi
+      controlledResources: ["cpu", "memory"]

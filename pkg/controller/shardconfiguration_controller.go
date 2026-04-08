@@ -94,7 +94,9 @@ func (r *ShardConfigurationReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := r.Get(ctx, req.NamespacedName, &cfg); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
 	klog.V(5).Infof("Reconciling ShardConfiguration %s", cfg.Name)
+
 	ctrlMap := make(map[kmapi.TypedObjectReference][]string)
 	for _, ref := range cfg.Status.Controllers {
 		ctrlMap[ref.TypedObjectReference] = ref.Pods
