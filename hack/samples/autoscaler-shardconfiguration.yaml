@@ -23,14 +23,7 @@ spec:
     # - MSSQLServerAutoscaler
     # - etc.
 
-  # Option 2: Shard specific autoscaler kinds only
-  # - apiGroup: autoscaling.kubedb.com
-  #   kind: MSSQLServerAutoscaler
-  # - apiGroup: autoscaling.kubedb.com
-  #   kind: PostgresAutoscaler
-  # - etc.
-
-  # Option 3: Use custom shard key to group autoscalers with their databases
+  # Option 2: Use custom shard key to group autoscalers with their databases
   # This ensures an autoscaler is managed by the same shard as its target database
   # - apiGroup: autoscaling.kubedb.com
   #   kind: PostgresAutoscaler
