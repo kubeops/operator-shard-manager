@@ -161,7 +161,6 @@ func isShardIdAndHostnameMatched(shardId string, pods []string) bool {
 	return false
 }
 
-
 // Resolves this pod's shard index from the ShardConfiguration.
 // It finds the pod's hostname in the ShardConfiguration status pod list and returns the index as a string.
 func ResolveShardIndex(kc client.Client, shardConfigName string) (string, error) {
