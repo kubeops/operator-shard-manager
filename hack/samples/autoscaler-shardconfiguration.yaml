@@ -1,0 +1,35 @@
+apiVersion: operator.k8s.appscode.com/v1alpha1
+kind: ShardConfiguration
+metadata:
+  name: kubedb-autoscaler
+spec:
+  # Controllers that manage autoscaler resources
+  controllers:
+  - apiGroup: apps
+    kind: StatefulSet
+    name: kubedb-kubedb-autoscaler
+    namespace: kubedb
+
+  # Resources to shard - all autoscaler CRs
+  resources:
+  # Option 1: Shard all autoscaler resources in the autoscaling.kubedb.com API group
+  - apiGroup: autoscaling.kubedb.com
+    # This will discover and shard all autoscaler kinds:
+    # - ElasticsearchAutoscaler
+    # - KafkaAutoscaler
+    # - MariaDBAutoscaler
+    # - MongoDBAutoscaler
+    # - MySQLAutoscaler
+    # - MSSQLServerAutoscaler
+    # - etc.
+
+  # Option 2: Use custom shard key to group autoscalers with their databases
+  # This ensures an autoscaler is managed by the same shard as its target database
+  # - apiGroup: autoscaling.kubedb.com
+  #   kind: PostgresAutoscaler
+  #   shardKey: ".spec.databaseRef.name"
+  #   useCooperativeShardMigration: true
+  # - apiGroup: autoscaling.kubedb.com
+  #   kind: MSSQLServerAutoscaler
+  #   shardKey: ".spec.databaseRef.name"
+  #   useCooperativeShardMigration: true
