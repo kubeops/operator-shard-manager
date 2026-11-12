@@ -25,7 +25,7 @@ COMPRESS ?= no
 
 CRD_OPTIONS          ?= "crd:generateEmbeddedObjectMeta=true,allowDangerousTypes=true"
 # https://github.com/appscodelabs/gengo-builder
-CODE_GENERATOR_IMAGE ?= ghcr.io/appscode/gengo:release-1.32
+CODE_GENERATOR_IMAGE ?= ghcr.io/appscode/gengo:release-1.34
 
 # Where to push the docker image.
 REGISTRY ?= ghcr.io/appscode
@@ -159,8 +159,8 @@ clientset:
 		$(CODE_GENERATOR_IMAGE)                          \
 		deepcopy-gen                                     \
 			--go-header-file "./hack/license/go.txt"       \
-			--input-dirs "$(GO_PKG)/$(REPO)/api/v1alpha1"  \
-			--output-file-base zz_generated.deepcopy
+			--output-file zz_generated.deepcopy.go         \
+			"$(GO_PKG)/$(REPO)/api/v1alpha1"
 
 # Generate openapi schema
 .PHONY: openapi
@@ -177,9 +177,17 @@ openapi:
 		openapi-gen                                      \
 			--v 1 --logtostderr                          \
 			--go-header-file "./hack/license/go.txt"     \
-			--input-dirs "$(GO_PKG)/$(REPO)/api/v1alpha1"      \
-			--output-package "$(GO_PKG)/$(REPO)/api/v1alpha1"  \
-			--report-filename /tmp/violation_exceptions.list
+			--output-dir "$(DOCKER_REPO_ROOT)/api/v1alpha1"    \
+			--output-pkg "$(GO_PKG)/$(REPO)/api/v1alpha1"      \
+			--output-file "openapi_generated.go"               \
+			--report-filename /tmp/violation_exceptions.list    \
+			"$(GO_PKG)/$(REPO)/api/v1alpha1"                   \
+			k8s.io/apimachinery/pkg/apis/meta/v1               \
+			k8s.io/apimachinery/pkg/api/resource               \
+			k8s.io/apimachinery/pkg/runtime                    \
+			k8s.io/apimachinery/pkg/util/intstr                \
+			k8s.io/apimachinery/pkg/version                    \
+			k8s.io/api/core/v1
 
 # Generate CRD manifests
 .PHONY: gen-crds
